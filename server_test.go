@@ -220,3 +220,37 @@ func TestBindJSONReturnsDecodeError(t *testing.T) {
 		}
 	}
 }
+
+func TestResponseJSON(t *testing.T) {
+	type item struct {
+		Name string `json:"name"`
+	}
+	engine := NewEngine()
+	engine.Get("/map", func(_ Request, response Response) {
+		response.JSON(http.StatusAccepted, map[string]string{"name": "book"})
+	})
+	engine.Get("/dto", func(_ Request, response Response) {
+		response.JSON(http.StatusCreated, item{Name: "book"})
+	})
+
+	for _, tc := range []struct {
+		path   string
+		status int
+	}{
+		{"/map", http.StatusAccepted},
+		{"/dto", http.StatusCreated},
+	} {
+		response := httptest.NewRecorder()
+		engine.(http.Handler).ServeHTTP(response, httptest.NewRequest(http.MethodGet, tc.path, nil))
+		if response.Code != tc.status {
+			t.Errorf("%s: status = %d, want %d", tc.path, response.Code, tc.status)
+		}
+		if got := response.Header().Get("Content-Type"); got != "application/json; charset=utf-8" {
+			t.Errorf("%s: Content-Type = %q", tc.path, got)
+		}
+		var body item
+		if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil || body.Name != "book" {
+			t.Errorf("%s: body = %+v, error = %v", tc.path, body, err)
+		}
+	}
+}

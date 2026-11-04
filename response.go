@@ -47,6 +47,11 @@ func (r Response) Respond(body any) Response {
 	return r
 }
 
+// JSON sets the HTTP status and JSON response body in one call.
+func (r Response) JSON(status int, body any) Response {
+	return r.Respond(body).Status(status)
+}
+
 // Status sets the HTTP status for the response.
 func (r Response) Status(status int) Response {
 	r.state.status = status

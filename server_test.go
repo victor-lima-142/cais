@@ -152,3 +152,33 @@ func TestRequestAndResponseShareContext(t *testing.T) {
 		t.Errorf("context in error response = %v", body["context"])
 	}
 }
+
+func TestRequestBodyCanDecodeIntoDestination(t *testing.T) {
+	type item struct {
+		Name string `json:"name"`
+	}
+	engine := NewEngine().Post("/items", func(request Request, response Response) {
+		var body item
+		decoded := request.Body(&body)
+		if body.Name == "book" && decoded != body {
+			t.Errorf("decoded body = %v, destination = %+v", decoded, body)
+		}
+		response.Respond(body).Status(http.StatusCreated)
+	})
+	for _, tc := range []struct {
+		body   string
+		status int
+	}{
+		{`{"name":"book"}`, http.StatusCreated},
+		{`{"name":42}`, http.StatusBadRequest},
+	} {
+		response := httptest.NewRecorder()
+		engine.(http.Handler).ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/items", strings.NewReader(tc.body)))
+		if response.Code != tc.status {
+			t.Errorf("body %s: status = %d, want %d", tc.body, response.Code, tc.status)
+		}
+		if !json.Valid(response.Body.Bytes()) {
+			t.Errorf("body %s: invalid JSON response %q", tc.body, response.Body.String())
+		}
+	}
+}

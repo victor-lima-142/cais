@@ -7,12 +7,11 @@ import (
 )
 
 type responseState struct {
-	status    int
-	body      any
-	hasBody   bool
-	err       error
-	decodeErr error
-	ctx       context.Context
+	status  int
+	body    any
+	hasBody bool
+	err     error
+	ctx     context.Context
 }
 
 // Response collects the result written by a route handler.
@@ -63,10 +62,6 @@ func (r Response) Error(err error) Response {
 
 func (r Response) write(w http.ResponseWriter, request *http.Request) {
 	request = request.WithContext(r.Context())
-	if r.state.decodeErr != nil {
-		renderError(w, request, r.state.decodeErr)
-		return
-	}
 	if r.state.err != nil {
 		renderError(w, request, r.state.err)
 		return

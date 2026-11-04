@@ -22,3 +22,22 @@ func main() {
 ```
 
 Para testar o pacote, execute `go test ./...`.
+
+Para ler JSON de entrada em um tipo concreto:
+
+```go
+type Input struct {
+	Name string `json:"name"`
+}
+
+engine.Post("/items", func(request cais.Request, response cais.Response) {
+	var input Input
+	if err := request.BindJSON(&input); err != nil {
+		response.Error(err)
+		return
+	}
+	response.Respond(input).Status(http.StatusCreated)
+})
+```
+
+`request.Body()` também devolve `(valor, error)` sem exigir um tipo concreto.

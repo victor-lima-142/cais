@@ -3,6 +3,7 @@ package cais
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"reflect"
@@ -14,39 +15,47 @@ type Handle func(Request, Response)
 // Request exposes the decoded body and HTTP request metadata.
 type Request struct {
 	request *http.Request
-	body    any
 	raw     []byte
 	state   *responseState
 }
 
-// Body returns the decoded JSON value. With a pointer, it also decodes into
-// that value and returns its typed contents. Decode failures become HTTP 400.
-func (r Request) Body(target ...any) any {
+// Body decodes the JSON request body. Without a destination it returns a value
+// of type any; with a pointer it also fills and returns the pointed-to value.
+func (r Request) Body(target ...any) (any, error) {
 	if len(target) == 0 {
-		return r.body
+		if len(r.raw) == 0 {
+			return nil, nil
+		}
+		var body any
+		if err := json.Unmarshal(r.raw, &body); err != nil {
+			return nil, invalidJSON(err)
+		}
+		return body, nil
 	}
 	if len(target) != 1 {
-		r.rejectBody()
-		return nil
+		return nil, fmt.Errorf("cais: Body accepts at most one destination")
 	}
 	value := reflect.ValueOf(target[0])
 	if !value.IsValid() || value.Kind() != reflect.Pointer || value.IsNil() {
-		r.rejectBody()
-		return nil
+		return nil, fmt.Errorf("cais: JSON destination must be a non-nil pointer")
 	}
-	if len(r.raw) > 0 {
-		if err := json.Unmarshal(r.raw, target[0]); err != nil {
-			r.rejectBody()
-			return nil
-		}
+	if len(r.raw) == 0 {
+		return nil, invalidJSON(io.EOF)
 	}
-	return value.Elem().Interface()
+	if err := json.Unmarshal(r.raw, target[0]); err != nil {
+		return nil, invalidJSON(err)
+	}
+	return value.Elem().Interface(), nil
 }
 
-func (r Request) rejectBody() {
-	if r.state != nil {
-		r.state.decodeErr = Error{Status: http.StatusBadRequest, Code: "invalid_json", Message: "invalid JSON body"}
-	}
+// BindJSON decodes the JSON request body into a non-nil pointer.
+func (r Request) BindJSON(target any) error {
+	_, err := r.Body(target)
+	return err
+}
+
+func invalidJSON(err error) error {
+	return fmt.Errorf("%w: %v", Error{Status: http.StatusBadRequest, Code: "invalid_json", Message: "invalid JSON body"}, err)
 }
 
 // Header returns a copy of the request headers.
@@ -98,7 +107,6 @@ func (r Request) Cookies() []*http.Cookie {
 
 func adaptHandle(handler Handle) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var body any
 		var raw []byte
 		if r.Body != nil {
 			var err error
@@ -107,15 +115,9 @@ func adaptHandle(handler Handle) http.HandlerFunc {
 				renderError(w, r, Error{Status: http.StatusBadRequest, Code: "invalid_json", Message: "invalid JSON body"})
 				return
 			}
-			if len(raw) > 0 {
-				if err := json.Unmarshal(raw, &body); err != nil {
-					renderError(w, r, Error{Status: http.StatusBadRequest, Code: "invalid_json", Message: "invalid JSON body"})
-					return
-				}
-			}
 		}
 		response := Response{state: &responseState{ctx: r.Context()}}
-		handler(Request{request: r, body: body, raw: raw, state: response.state}, response)
+		handler(Request{request: r, raw: raw, state: response.state}, response)
 		response.write(w, r)
 	}
 }

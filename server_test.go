@@ -24,7 +24,12 @@ func TestEngineAndGroups(t *testing.T) {
 	engine := NewEngine()
 	engine.Post("/direct", func(request Request, response Response) {
 		order = append(order, "direct")
-		response.Respond(request.Body()).Status(http.StatusCreated)
+		body, err := request.Body()
+		if err != nil {
+			response.Error(err)
+			return
+		}
+		response.Respond(body).Status(http.StatusCreated)
 	}, middleware("route"))
 
 	engine.Group(func(group RouteGroup) {
@@ -159,7 +164,11 @@ func TestRequestBodyCanDecodeIntoDestination(t *testing.T) {
 	}
 	engine := NewEngine().Post("/items", func(request Request, response Response) {
 		var body item
-		decoded := request.Body(&body)
+		decoded, err := request.Body(&body)
+		if err != nil {
+			response.Error(err)
+			return
+		}
 		if body.Name == "book" && decoded != body {
 			t.Errorf("decoded body = %v, destination = %+v", decoded, body)
 		}
@@ -171,6 +180,7 @@ func TestRequestBodyCanDecodeIntoDestination(t *testing.T) {
 	}{
 		{`{"name":"book"}`, http.StatusCreated},
 		{`{"name":42}`, http.StatusBadRequest},
+		{`{`, http.StatusBadRequest},
 	} {
 		response := httptest.NewRecorder()
 		engine.(http.Handler).ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/items", strings.NewReader(tc.body)))
@@ -179,6 +189,34 @@ func TestRequestBodyCanDecodeIntoDestination(t *testing.T) {
 		}
 		if !json.Valid(response.Body.Bytes()) {
 			t.Errorf("body %s: invalid JSON response %q", tc.body, response.Body.String())
+		}
+	}
+}
+
+func TestBindJSONReturnsDecodeError(t *testing.T) {
+	type item struct {
+		Name string `json:"name"`
+	}
+	engine := NewEngine().Post("/bind", func(request Request, response Response) {
+		var body item
+		if err := request.BindJSON(&body); err != nil {
+			response.Error(err)
+			return
+		}
+		response.Respond(body)
+	})
+	for _, tc := range []struct {
+		body   string
+		status int
+	}{
+		{`{"name":"book"}`, http.StatusOK},
+		{`{"name":42}`, http.StatusBadRequest},
+		{"", http.StatusBadRequest},
+	} {
+		response := httptest.NewRecorder()
+		engine.(http.Handler).ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/bind", strings.NewReader(tc.body)))
+		if response.Code != tc.status {
+			t.Errorf("body %s: status = %d, want %d", tc.body, response.Code, tc.status)
 		}
 	}
 }

@@ -10,6 +10,10 @@ import (
 
 func TestErrorsUseStandardRenderer(t *testing.T) {
 	engine := NewEngine().Append(Post("/items", func(request Request, response Response) {
+		if _, err := request.Body(); err != nil {
+			response.Error(err)
+			return
+		}
 		response.Error(Error{Status: http.StatusUnprocessableEntity, Code: "invalid_item", Message: "item is invalid"})
 	}))
 	for _, tc := range []struct {
